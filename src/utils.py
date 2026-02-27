@@ -13,14 +13,22 @@ class TrendCalculator:
 
     def download_data(self, start="2022-01-01"):
         end = datetime.today().strftime("%Y-%m-%d")
-        df = yf.download(self.ticker, start=start, end=end, interval="1d")
-        df = df[["Close"]].rename(columns={"Close": "price"})
+        raw = yf.download(
+            self.ticker, start=start, end=end, interval="1d", progress=False
+        )
+        if raw.empty:
+            raise ValueError(f"No data returned by yfinance for ticker '{self.ticker}'")
+        if isinstance(raw.columns, pd.MultiIndex):
+            raw.columns = raw.columns.get_level_values(0)
+        close = raw[["Close"]].squeeze()
+        df = close.to_frame("price")
         df.index.name = "date"
         df.reset_index(inplace=True)
         self.data = df
 
     def calculate_trends(self):
         df = self.data.copy()
+        df["price"] = df["price"].squeeze()
         df["SMA"] = df["price"].rolling(window=self.sma_window).mean()
         df["EMA"] = df["price"].ewm(span=self.ema_window, adjust=False).mean()
 
@@ -31,7 +39,13 @@ class TrendCalculator:
         self.data = df.dropna()
 
         latest = self.data.iloc[-1]
-        return latest.to_dict()
+        self.latest_result = {
+            "date": latest["date"].strftime("%Y-%m-%d"),
+            "price": round(float(latest["price"]), 2),
+            "sma": round(float(latest["SMA"]), 2),
+            "ema": round(float(latest["EMA"]), 2),
+            "signal": int(latest["signal"]),
+        }
 
     def calculate(self, start="2022-01-01"):
         self.download_data(start)
